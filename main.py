@@ -1,25 +1,20 @@
+from ast import Await
 import json
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Union
 import asyncio
 import os
 from telethon import TelegramClient
 from telethon.tl.types import MessageMediaPhoto
 import logging
 import requests
-import time
 
-from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.hyperlink import Hyperlink
-
-from json_parser import parse_message_to_json
+from json_parser import parse_message
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Загружаем JSON шаблон
 template_json = {
     "type": "1",
     "user": "608",
@@ -29,7 +24,7 @@ template_json = {
             "id": "896",
             "title": "Цена",
             "field_type": "number",
-            "data": {"value": "5000000"},
+            "data": {"value": "250000"},
             "options": [],
             "required": True,
         },
@@ -37,7 +32,7 @@ template_json = {
             "id": "951",
             "title": "Общая площадь",
             "field_type": "number",
-            "data": {"value": "Узбекистан, Ташкент, Циолковский"},
+            "data": {"value": "360"},
             "options": [],
             "required": False,
         },
@@ -45,7 +40,7 @@ template_json = {
             "id": "869",
             "title": "Адрес объекта",
             "field_type": "address",
-            "data": {"value": "Узбекистан, Ташкент, Циолковский"},
+            "data": {"value": "Узбекистан, Ташкент, ул. Циалковская"},
             "options": [],
             "required": False,
         },
@@ -53,7 +48,9 @@ template_json = {
             "id": "871",
             "title": "Описание",
             "field_type": "rich_text",
-            "data": {"value": "1231"},
+            "data": {
+                "value": "🏡Продается дом в Мирзо-Улугбекском районе! 🌍Адрес: Ул. Циалковская 🔵соток: 3,6 🔴комнат: 11 🟠этаж: 2 🟢общая площадь: 360 кв.м 💰Цена: 250 000$ ☎️ (99)729-49-91"
+            },
             "options": [],
             "required": False,
         },
@@ -65,12 +62,68 @@ template_json = {
             "options": [],
             "required": True,
         },
+        {
+            "id": "992",
+            "title": "Удобства",
+            "field_type": "text",
+            "data": {"value": "летняя кухня"},
+            "options": [],
+            "required": False,
+        },
+        {
+            "id": "981",
+            "title": "Удобства",
+            "field_type": "list",
+            "data": {"value": "Дом"},
+            "options": [],
+            "required": False,
+        },
+        {
+            "id": "990",
+            "title": "Санузел",
+            "field_type": "list",
+            "data": {"value": "в доме"},
+            "options": [],
+            "required": False,
+        },
+        {
+            "id": "991",
+            "title": "Душ",
+            "field_type": "list",
+            "data": {"value": "В доме"},
+            "options": [],
+            "required": False,
+        },
+        {
+            "id": "1135",
+            "title": "Количество комнат",
+            "field_type": "number",
+            "data": {"value": "11"},
+            "options": [],
+            "required": False,
+        },
+        {
+            "id": "882",
+            "title": "Фотографии",
+            "field_type": "photo",
+            "data": {
+                "value": [
+                    {
+                        "0": {
+                            "image": "/images/objects/19105/faa8f99cf04a007d8d845d690ea361ef.png",
+                            "thumb": "/images/objects/19105/thumb_faa8f99cf04a007d8d845d690ea361ef.png",
+                        }
+                    }
+                ]
+            },
+            "options": [],
+            "required": False,
+        },
     ],
 }
 
 API_URL = "https://hata.uz/api/object/"
-BEARER_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzUwODMxMTQwLCJpYXQiOjE3NTA3NDQ3NDAsImp0aSI6IjRiNWExYjE0ZjExNjQwZGJiYjM3ZDQ1MGRjODJjMjAyIiwidXNlcl9pZCI6NjA4fQ.5gxo_jCwsxiR2MukLlQfE6p7plz7T0SU9OA9HOMNuFM"
-
+BEARER_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzUwOTMzMTI3LCJpYXQiOjE3NTA4NDY3MjcsImp0aSI6ImZkN2VjYWE5MDVkYTRlYzlhMGNhNDdkN2NiNmVhOTVlIiwidXNlcl9pZCI6NjA4fQ.J6JTgb1dxNvd6DDTmxcx94RqblDE5xO3R1G7FPwu0u0"
 # Заголовки для запроса
 headers = {
     "Authorization": f"Bearer {BEARER_TOKEN}",
@@ -164,115 +217,8 @@ class TelegramParser:
         return grouped_message
 
 
-async def create_excel_with_ids_and_text(
-    data: List[Dict[str, Union[str, List[MessageMediaPhoto]]]],
-    filename: str = "tg_messages.xlsx",
-    photos_dir: str = "photos",
-) -> None:
-
-    wb = Workbook()
-    ws = wb.active
-    ws.append(["ID", "Текст", "Фото"])
-
-    # Собираем все фото и создаем гиперссылки
-    if os.path.exists(photos_dir):
-        for item in data:
-            message_id = item["message"]["id"]
-            row = [message_id, item["message"]["message"], ""]  # Поле для гиперссылок
-            ws.append(row)
-
-            # Ищем все фото для этого ID
-            photo_counter = 1
-            for photo_file in os.listdir(photos_dir):
-                if photo_file.startswith(f"{message_id}_"):
-                    photo_path = os.path.abspath(os.path.join(photos_dir, photo_file))
-
-                    # Создаем кликабельную ссылку
-                    link_text = f"Фото {photo_counter}"
-                    cell = ws.cell(row=ws.max_row, column=3)
-                    cell.value = link_text
-                    cell.hyperlink = Hyperlink(
-                        ref=cell.coordinate,
-                        target=photo_path,
-                        tooltip=f"Открыть {photo_file}",
-                    )
-                    photo_counter += 1
-
-    # Настраиваем ширину колонок
-    ws.column_dimensions[get_column_letter(1)].width = 15  # ID
-    ws.column_dimensions[get_column_letter(2)].width = 50  # Текст
-    ws.column_dimensions[get_column_letter(3)].width = 25  # Фото
-
-    wb.save(filename)
-    print(f"✅ Файл {filename} создан с кликабельными ссылками!")
-
-
-def send_objects(json_list):
-    for index, json_obj in enumerate(json_list, 1):
-        try:
-            print(f"Отправка объекта {index} из {len(json_list)}...")
-
-            response = requests.post(
-                API_URL,
-                json={
-                    "type": "1",
-                    "user": "608",
-                    "object_type": "2",
-                    "object_fields": [
-                        {
-                            "id": "896",
-                            "title": "Цена",
-                            "field_type": "number",
-                            "data": {"value": "5000000"},
-                            "options": [],
-                            "required": True,
-                        },
-                        {
-                            "id": "883",
-                            "title": "Тип сделки",
-                            "field_type": "object_type",
-                            "data": {"value": "1"},
-                            "options": [],
-                            "required": True,
-                        },
-                    ],
-                },
-                headers=headers,
-                auth=BEARER_TOKEN,
-            )
-
-            if response.status_code == 200 or response.status_code == 201:
-                print(
-                    f"Успешно отправлен объект {index}. Ответ сервера: {response.text}"
-                )
-            else:
-                print(
-                    f"Ошибка при отправке объекта {index}. Код статуса: {response.status_code}"
-                )
-                print(f"Ответ сервера: {response}")
-
-            # Небольшая задержка между запросами, чтобы не перегружать сервер
-            time.sleep(0.1)
-
-        except Exception as e:
-            print(f"Ошибка при отправке объекта {index}: {str(e)}")
-
-        print("-" * 50)
-
-
 def send_json_as_multipart(json_data, field_name="fields", headers={}):
-    """
-    Отправляет JSON данные как файл в multipart/form-data запросе.
 
-    Args:
-        api_url: URL API-сервиса.
-        json_data: JSON данные для отправки (словарь или список словарей).
-        field_name: Имя поля в multipart/form-data, которое будет содержать JSON. Defaults to "fields".
-        headers: Дополнительные заголовки запроса.
-
-    Returns:
-        Объект response от requests.
-    """
     # Преобразуем JSON данные в строку
     json_string = json.dumps(
         json_data, ensure_ascii=False
@@ -290,7 +236,7 @@ def send_json_as_multipart(json_data, field_name="fields", headers={}):
     try:
         response = requests.post(API_URL, files=files, headers=headers)
         response.raise_for_status()
-        print(response.raise_for_status())
+        print(f"\n\n{response.json()}\n\n")
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при отправке запроса: {e}")
         return None
@@ -311,26 +257,23 @@ async def main():
 
             parser = TelegramParser(client)
 
-            messages = await parser.get_messages(chat_entity, limit=32)
-            parsed_messages = []
+            messages = await parser.get_messages(chat_entity, limit=5)
 
             groups = await parser.group_objects(messages)
+            groups = await parser.set_photo_id_to_message(groups)
+            await parser.download_photos(groups)
 
+            print(*groups, sep="\n\n")
+
+            parsed_messages = []
             for message in groups:
-                parsed_message = parse_message_to_json(
-                    message["message"]["message"], template_json
-                )
-
-                send_json_as_multipart(json_data=parsed_message, headers=headers)
+                parsed_message = await parse_message(message)
                 parsed_messages.append(parsed_message)
 
-            # await parser.download_photos(groups)
-            # groups = await parser.set_photo_id_to_message(groups)
+            for parsed_message in parsed_messages:
+                send_json_as_multipart(json_data=parsed_message, headers=headers)
 
-            # await create_excel_with_ids_and_text(groups)
-            # print(*groups, sep="\n\n")
             # print(*parsed_messages, sep="\n\n")
-            # print(*groups, sep="\n\n")
 
         except Exception as e:
             logging.error(f"An error occurred: {e}")

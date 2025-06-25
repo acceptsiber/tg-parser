@@ -1,1 +1,4 @@
-/s.session
+*.session
+/.venv
+__pycache__/
+/photos
