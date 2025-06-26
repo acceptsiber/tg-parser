@@ -25,19 +25,20 @@ async def remove_emojis(text):
 async def parse_message(tg_data):
     # Извлекаем данные из сообщения
     message = tg_data["message"]["message"]
+    url = tg_data["message"]["url"]
     telegram_id = tg_data["message"]["telegram_id"]
     photos_id = tg_data.get("photos_id", [])
 
     # Парсим данные с помощью регулярных выражений
-    price_match = re.search(r"💰Цена: ([0-9, ]+)\$", message)
-    area_match = re.search(r"🔶общая площадь: (\d+)", message)
-    address_match = re.search(r"🌍Адрес: (.+?) 🔶", message) or re.search(
-        r"🌍Адрес: (.+?)💰", message
+    price_match = re.search(r"Цена: ([0-9, ]+)\$", message)
+    area_match = re.search(r"площадь: (\d+)", message)
+    address_match = re.search(r"Адрес: (.+?) 🔶", message) or re.search(
+        r"Адрес: (.+?)", message
     )
-    rooms_match = re.search(r"🔶комнат: (\d+)", message)
-    land_match = re.search(r"🔶соток: ([0-9,]+)", message)
-    floors_match = re.search(r"🔶этаж: (\d+)", message)
-    state_match = re.search(r"🔶Состояние: (.+?) 💰", message)
+    rooms_match = re.search(r"комнат: (\d+)", message)
+    land_match = re.search(r"соток: ([0-9,]+)", message)
+    floors_match = re.search(r"этаж: (\d+)", message)
+    state_match = re.search(r"Состояние: (.+?) ", message)
 
     # Определяем тип объекта (Дом/Коттедж)
     object_type = "Дом"
@@ -51,7 +52,7 @@ async def parse_message(tg_data):
         "object_type": "5",
         "object_fields": [
             {
-                "id": "896",
+                "id": 896,
                 "title": "Цена",
                 "field_type": "number",
                 "data": {
@@ -90,7 +91,11 @@ async def parse_message(tg_data):
                 "id": "871",
                 "title": "Описание",
                 "field_type": "rich_text",
-                "data": {"value": await remove_emojis(message)},
+                "data": {
+                    "value": await remove_emojis(message)
+                    + ". Ссылка на телеграм: "
+                    + url
+                },
                 "options": [],
                 "required": False,
             },
@@ -128,6 +133,14 @@ async def parse_message(tg_data):
                         for photo_id in photos_id
                     ]
                 },
+                "options": [],
+                "required": False,
+            },
+            {
+                "id": 1284,
+                "title": "Валюта",
+                "field_type": "text",
+                "data": {"value": "$"},
                 "options": [],
                 "required": False,
             },

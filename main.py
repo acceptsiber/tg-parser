@@ -116,7 +116,7 @@ template_json = {
 }
 
 API_URL = "https://hata.uz/api/object/"
-BEARER_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzUwOTMzMTI3LCJpYXQiOjE3NTA4NDY3MjcsImp0aSI6ImZkN2VjYWE5MDVkYTRlYzlhMGNhNDdkN2NiNmVhOTVlIiwidXNlcl9pZCI6NjA4fQ.J6JTgb1dxNvd6DDTmxcx94RqblDE5xO3R1G7FPwu0u0"
+BEARER_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzUxMDE5MTc3LCJpYXQiOjE3NTA5MzI3NzcsImp0aSI6IjJlOGQ0ZmIxMDQxNDQ4ZWE4NmEyYTJlODY4MzIxYjYzIiwidXNlcl9pZCI6NjA4fQ.auVSbgLFqrnmWxnzodiqKglKyaJDxj5LYyK5J1SbT-w"
 # Заголовки для запроса
 headers = {
     "Authorization": f"Bearer {BEARER_TOKEN}",
@@ -131,11 +131,19 @@ class TelegramParser:
     async def get_messages(
         self, entity: str | int, limit: int = 100
     ) -> List[Dict[str, str]]:
-        """Gets messages with media files."""
+        """Gets messages with media files and their URLs."""
         messages: List[Dict[str, str]] = []
         messages_data = await self.client.get_messages(entity, limit=limit)
-        for message in messages_data:
 
+        # Получаем информацию о чате/канале для формирования ссылки
+        chat = await self.client.get_entity(entity)
+        chat_username = (
+            chat.username
+            if hasattr(chat, "username") and chat.username
+            else f"c/{chat.id}"
+        )
+
+        for message in messages_data:
             first_line = message.text.split("\n")[0].strip()
             message_id = (
                 first_line.split()[0]
@@ -143,12 +151,16 @@ class TelegramParser:
                 else "No ID"
             )
 
+            # Формируем ссылку на сообщение
+            message_url = f"https://t.me/{chat_username}/{message.id}"
+
             messages.append(
                 {
                     "telegram_id": message.id,
                     "id": re.sub(r"\*", "", message_id),
                     "message": re.sub(r"\s+", " ", message.message).strip(),
                     "photo": message.media,
+                    "url": message_url,  # Добавляем URL сообщения
                 }
             )
 
@@ -205,8 +217,10 @@ class TelegramParser:
         self, grouped_message: List[Dict[str, Union[str, List[MessageMediaPhoto]]]]
     ):
         for message in grouped_message:
-            message["photos_id"] = [photo.photo.id for photo in message["photos"]]
-
+            try:
+                message["photos_id"] = [photo.photo.id for photo in message["photos"]]
+            except:
+                continue
         return grouped_message
 
 
@@ -228,7 +242,6 @@ async def send_data_with_files(json_data, photo_paths, headers={}):
                     (path.name, open(path, "rb"), "image/png"),
                 )
             )
-    print(f"----------{files}")
     try:
         response = requests.post(API_URL, files=files, headers=headers)
         response.raise_for_status()
@@ -259,7 +272,7 @@ async def main():
 
             parser = TelegramParser(client)
 
-            messages = await parser.get_messages(chat_entity, limit=15)
+            messages = await parser.get_messages(chat_entity, limit=10)
 
             groups = await parser.group_objects(messages)
             groups = await parser.set_photo_id_to_message(groups)
@@ -272,9 +285,8 @@ async def main():
                 parsed_message = await parse_message(message)
                 parsed_messages.append(parsed_message)
 
-            print(*parsed_messages, sep="\n\n")
+            # print(*parsed_messages, sep="\n\n")
             for parsed_message in parsed_messages:
-                # Извлекаем список путей к фотографиям из JSON
                 photos_list = next(
                     (
                         field["data"]["value"]
@@ -283,7 +295,6 @@ async def main():
                     ),
                     [],
                 )
-
                 await send_data_with_files(
                     json_data=parsed_message, headers=headers, photo_paths=photos_list
                 )
