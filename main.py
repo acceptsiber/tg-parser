@@ -1,4 +1,3 @@
-from ast import Await
 import json
 import re
 from typing import Dict, List, Union
@@ -8,6 +7,9 @@ from telethon import TelegramClient
 from telethon.tl.types import MessageMediaPhoto
 import logging
 import requests
+
+
+from pathlib import Path
 
 from json_parser import parse_message
 
@@ -106,16 +108,7 @@ template_json = {
             "id": "882",
             "title": "Фотографии",
             "field_type": "photo",
-            "data": {
-                "value": [
-                    {
-                        "0": {
-                            "image": "/images/objects/19105/faa8f99cf04a007d8d845d690ea361ef.png",
-                            "thumb": "/images/objects/19105/thumb_faa8f99cf04a007d8d845d690ea361ef.png",
-                        }
-                    }
-                ]
-            },
+            "data": {"value": [{"0": {}}]},
             "options": [],
             "required": False,
         },
@@ -217,29 +210,38 @@ class TelegramParser:
         return grouped_message
 
 
-def send_json_as_multipart(json_data, field_name="fields", headers={}):
+async def send_data_with_files(json_data, photo_paths, headers={}):
+    # Подготовка файлов для отправки
+    files = []
 
-    # Преобразуем JSON данные в строку
-    json_string = json.dumps(
-        json_data, ensure_ascii=False
-    )  # ensure_ascii=False чтобы не было проблем с кириллицей
+    # Добавляем JSON данные
+    json_string = json.dumps(json_data, ensure_ascii=False)
+    files.append(("fields", ("blob", json_string, "application/json")))
 
-    # Создаем файл в памяти (не нужно записывать на диск)
-    files = {
-        field_name: (
-            "data.json",
-            json_string,
-            "application/json",
-        )
-    }
-
+    # Добавляем изображения
+    for photo_path in photo_paths:
+        path = Path(photo_path)
+        if path.exists():
+            files.append(
+                (
+                    "882",
+                    (path.name, open(path, "rb"), "image/png"),
+                )
+            )
+    print(f"----------{files}")
     try:
         response = requests.post(API_URL, files=files, headers=headers)
         response.raise_for_status()
         print(f"\n\n{response.json()}\n\n")
+        return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при отправке запроса: {e}")
         return None
+    finally:
+        # Закрываем все файловые дескрипторы
+        for file in files:
+            if len(file) == 3 and hasattr(file[2], "close"):
+                file[2].close()
 
 
 async def main():
@@ -257,7 +259,7 @@ async def main():
 
             parser = TelegramParser(client)
 
-            messages = await parser.get_messages(chat_entity, limit=5)
+            messages = await parser.get_messages(chat_entity, limit=15)
 
             groups = await parser.group_objects(messages)
             groups = await parser.set_photo_id_to_message(groups)
@@ -270,10 +272,21 @@ async def main():
                 parsed_message = await parse_message(message)
                 parsed_messages.append(parsed_message)
 
+            print(*parsed_messages, sep="\n\n")
             for parsed_message in parsed_messages:
-                send_json_as_multipart(json_data=parsed_message, headers=headers)
+                # Извлекаем список путей к фотографиям из JSON
+                photos_list = next(
+                    (
+                        field["data"]["value"]
+                        for field in parsed_message["object_fields"]
+                        if field["id"] == "882" and field["field_type"] == "photo"
+                    ),
+                    [],
+                )
 
-            # print(*parsed_messages, sep="\n\n")
+                await send_data_with_files(
+                    json_data=parsed_message, headers=headers, photo_paths=photos_list
+                )
 
         except Exception as e:
             logging.error(f"An error occurred: {e}")

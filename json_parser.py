@@ -124,18 +124,8 @@ async def parse_message(tg_data):
                 "field_type": "photo",
                 "data": {
                     "value": [
-                        {
-                            str(i): (
-                                f"data:image/png;base64,{base64_string}"
-                                if (
-                                    base64_string := await image_to_base64(
-                                        os.path.join("photos", f"{photo_id}.jpg")
-                                    )
-                                )
-                                else None
-                            )
-                        }
-                        for i, photo_id in enumerate(photos_id)
+                        os.path.join("photos", f"{photo_id}.jpg")
+                        for photo_id in photos_id
                     ]
                 },
                 "options": [],
